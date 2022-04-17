@@ -1,7 +1,7 @@
 const int MAX_ANALOG_VALUE = 1024;
 const float ANALOG_TO_ANGLE = 360 / (float)MAX_ANALOG_VALUE;
-const float PULLEY_DIAMETER_MM = 17;
-const float MM_PER_NOTE = 20;
+const float PULLEY_CIRCUMFERENCE_MM = -52.63;
+const float MM_PER_NOTE = 10;
 
 const bool DEBUG_MODE = false;
 
@@ -30,9 +30,12 @@ void loop() {
   float angleDelta = differenceBetweenAngles(pulley1.angle, newAngle);
 
   pulley1.angle = newAngle;
-  pulley1.travel += angleDelta / 360.0 * PULLEY_DIAMETER_MM;
+  pulley1.travel += angleDelta / 360.0 * PULLEY_CIRCUMFERENCE_MM;
 
   float semitoneOffset = pulley1.travel / MM_PER_NOTE;
+
+  // TODO: Move the note transitions so they don't lay exactly on a note
+  // It causes artifacts when doing vibrato
 
   // Start at middle C 
   int nextNote = 60 + trunc(semitoneOffset);
