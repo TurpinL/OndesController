@@ -1,12 +1,14 @@
 const int MAX_ANALOG_VALUE = 1024;
 const float ANALOG_TO_ANGLE = 360 / (float)MAX_ANALOG_VALUE;
+const float PULLEY_DIAMETER_MM = 17;
+const float MM_PER_NOTE = 20;
 
 const bool DEBUG_MODE = false;
 
 struct Pulley {
   uint8_t pin;
   float angle;
-  float distance;
+  float travel;
 };
 
 Pulley pulley1 = { A0, 0, 0 };
@@ -25,30 +27,34 @@ void setup() {
 
 void loop() {
   float newAngle = analogReadAngle(A0);
-  float distanceDelta = differenceBetweenAngles(pulley1.angle, newAngle);
+  float angleDelta = differenceBetweenAngles(pulley1.angle, newAngle);
 
   pulley1.angle = newAngle;
-  pulley1.distance += distanceDelta;
+  pulley1.travel += angleDelta / 360.0 * PULLEY_DIAMETER_MM;
 
-  // Start at middle C and add change note every 100deg
-  int newNote = 60 + (pulley1.distance / 100.f);
+  float semitoneOffset = pulley1.travel / MM_PER_NOTE;
+
+  // Start at middle C 
+  int nextNote = 60 + trunc(semitoneOffset);
 
   if (Serial.availableForWrite() > 32) {
-    // TODO: Debounce note changes.
-    if (newNote != currentNote) {
-      if (DEBUG_MODE) {
-        currentNote = newNote;
-      } else {
-        midiCommand(0x90, newNote, 0x64); // Start new note
+    if (nextNote != currentNote) {
+      if (!DEBUG_MODE) {
+        midiCommand(0x90, nextNote, 0x64); // Start new note
         midiCommand(0x80, currentNote, 0x64); // Stop current note
       }
+
+      currentNote = nextNote;
     }
+
+    float bendSemitones = semitoneOffset - trunc(semitoneOffset);
     
-    // TODO: This doesn't handle negative values properly
     if (DEBUG_MODE) {
-      Serial.println(pulley1.distance);
+      Serial.print(nextNote);
+      Serial.print(": ");
+      Serial.println(bendSemitones);
     } else {
-      floatToPitchBend(((int)pulley1.distance % 100) / 400.f);
+      floatToPitchBend(bendSemitones);
     }
   }
 }
@@ -69,15 +75,16 @@ float differenceBetweenAngles(float angleStart, float angleEnd) {
   return (minAngle == angleStart) ? diff : -diff;
 }
 
-// floatBend should be in the range -1 to 1
-void floatToPitchBend(float floatBend) {
-  int rawIntBend = floatBend * 0x3FFF; // 14 bits
+// Assumes +/- 2 semitone pitchbend range on the synth. So the semitones param should be within that range
+void floatToPitchBend(float semitones) {
+  // Map the +/- 2 semitone range to the 0 - 16,383 (14 bits) of midi's pitchbend message
+  int rawIntBend = (semitones + 2) * 0xFFF/*2^12*/;
 
   int leastSignificatByte = rawIntBend & 0x7F;
   int mostSignificatByte = (rawIntBend >> 7) & 0x7F;
 
   if (DEBUG_MODE) {
-    Serial.println(rawIntBend);
+    Serial.print(rawIntBend);
   } else {
     midiCommand(0xE0, leastSignificatByte, mostSignificatByte);
   }
