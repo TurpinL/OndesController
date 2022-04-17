@@ -1,6 +1,8 @@
 const int MAX_ANALOG_VALUE = 1024;
 const float ANALOG_TO_ANGLE = 360 / (float)MAX_ANALOG_VALUE;
 
+const bool DEBUG_MODE = false;
+
 struct Pulley {
   uint8_t pin;
   float angle;
@@ -11,8 +13,12 @@ Pulley pulley1 = { A0, 0, 0 };
 int currentNote = 60; // C
 
 void setup() {
-  // Configure baud for midi
-  Serial.begin(31250);
+  if (DEBUG_MODE) {
+   Serial.begin(38400);
+  } else {
+    // Configure baud for midi
+    Serial.begin(31250);
+  }
 
   pulley1.angle = analogReadAngle(A0);
 }
@@ -24,17 +30,26 @@ void loop() {
   pulley1.angle = newAngle;
   pulley1.distance += distanceDelta;
 
+  // Start at middle C and add change note every 100deg
   int newNote = 60 + (pulley1.distance / 100.f);
 
   if (Serial.availableForWrite() > 32) {
     // TODO: Debounce note changes.
     if (newNote != currentNote) {
-      midiCommand(0x90, newNote, 0x64); // Start new note
-      midiCommand(0x80, currentNote, 0x64); // Stop current note
-      currentNote = newNote;
+      if (DEBUG_MODE) {
+        currentNote = newNote;
+      } else {
+        midiCommand(0x90, newNote, 0x64); // Start new note
+        midiCommand(0x80, currentNote, 0x64); // Stop current note
+      }
     }
+    
     // TODO: This doesn't handle negative values properly
-    floatToPitchBend(((int)pulley1.distance % 100) / 400.f);
+    if (DEBUG_MODE) {
+      Serial.println(pulley1.distance);
+    } else {
+      floatToPitchBend(((int)pulley1.distance % 100) / 400.f);
+    }
   }
 }
 
@@ -61,7 +76,11 @@ void floatToPitchBend(float floatBend) {
   int leastSignificatByte = rawIntBend & 0x7F;
   int mostSignificatByte = (rawIntBend >> 7) & 0x7F;
 
-  midiCommand(0xE0, leastSignificatByte, mostSignificatByte);
+  if (DEBUG_MODE) {
+    Serial.println(rawIntBend);
+  } else {
+    midiCommand(0xE0, leastSignificatByte, mostSignificatByte);
+  }
 }
 
 // plays a MIDI note. Doesn't check to see that cmd is greater than 127, or that
