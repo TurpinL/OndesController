@@ -1,9 +1,14 @@
-const int MAX_ANALOG_VALUE = 1024;
+const int MAX_ANALOG_VALUE = 1017; // The AS5600 doesn't quite get to 5v, the highest value I'm seeing is 1017
+
+// Analog issues:
+// 1: MAX_ANALOG_VALUE isn't actually 5v
+// 2: Sometimes the arduno will read the pin as it's falling from ~5v down to 0, and will therefore miscalculate the change in angle.
+
 const float ANALOG_TO_ANGLE = 360 / (float)MAX_ANALOG_VALUE;
 const float PULLEY_CIRCUMFERENCE_MM = -52.63;
 const float MM_PER_NOTE = 10;
 
-const bool DEBUG_MODE = false;
+const bool DEBUG_MODE = true;
 
 struct Pulley {
   uint8_t pin;
@@ -11,7 +16,8 @@ struct Pulley {
   float travel;
 };
 
-Pulley pulley1 = { A0, 0, 0 };
+Pulley pulleyLeft = { A0, 0, 0 };
+Pulley pulleyRight = { A1, 0, 0 };
 int currentNote = 60; // C
 
 void setup() {
@@ -22,17 +28,15 @@ void setup() {
     Serial.begin(31250);
   }
 
-  pulley1.angle = analogReadAngle(A0);
+  initializePulley(pulleyLeft);
+  initializePulley(pulleyRight);
 }
 
 void loop() {
-  float newAngle = analogReadAngle(A0);
-  float angleDelta = differenceBetweenAngles(pulley1.angle, newAngle);
+  updatePulley(pulleyLeft);
+  updatePulley(pulleyRight);
 
-  pulley1.angle = newAngle;
-  pulley1.travel += angleDelta / 360.0 * PULLEY_CIRCUMFERENCE_MM;
-
-  float semitoneOffset = pulley1.travel / MM_PER_NOTE;
+  float semitoneOffset = pulleyLeft.travel / MM_PER_NOTE;
 
   // TODO: Move the note transitions so they don't lay exactly on a note
   // It causes artifacts when doing vibrato
@@ -53,9 +57,9 @@ void loop() {
     float bendSemitones = semitoneOffset - trunc(semitoneOffset);
     
     if (DEBUG_MODE) {
-      Serial.print(nextNote);
-      Serial.print(": ");
-      Serial.println(bendSemitones);
+      Serial.print(semitoneOffset);
+      Serial.print(" - ");
+      Serial.println(abs(pulleyLeft.travel - pulleyRight.travel));
     } else {
       floatToPitchBend(bendSemitones);
     }
@@ -99,4 +103,16 @@ void midiCommand(int cmd, int pitch, int velocity) {
   Serial.write(cmd);
   Serial.write(pitch);
   Serial.write(velocity);
+}
+
+void initializePulley(Pulley &pulley) {
+  pulley.angle = analogReadAngle(pulley.pin);
+}
+
+void updatePulley(Pulley &pulley) {
+  float newAngle = analogReadAngle(pulley.pin);
+  float angleDelta = differenceBetweenAngles(pulley.angle, newAngle);
+
+  pulley.angle = newAngle;
+  pulley.travel += angleDelta / 360.0 * PULLEY_CIRCUMFERENCE_MM;
 }
