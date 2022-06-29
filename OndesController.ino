@@ -44,13 +44,11 @@ void loop() {
   updatePulley(pulleyLeft);
   updatePulley(pulleyRight);
 
-  float semitoneOffset = pulleyLeft.travel / MM_PER_NOTE;
-
-  // TODO: Move the note transitions so they don't lay exactly on a note
-  // It causes artifacts when doing vibrato
+  float semitoneOffset = pulleyLeft.travel / MM_PER_NOTE; 
 
   // Start at middle C 
-  int nextNote = 60 + trunc(semitoneOffset);
+  int nextNote = 60 + round(semitoneOffset);
+  float bendSemitones = semitoneOffset - round(semitoneOffset);
 
   if (Serial1.availableForWrite() > 32) {
     if (nextNote != currentNote) {
@@ -60,15 +58,17 @@ void loop() {
       currentNote = nextNote;
     }
 
-    float bendSemitones = semitoneOffset - trunc(semitoneOffset);
+    // float bendSemitones = semitoneOffset - trunc(semitoneOffset) - NOTE_TRANSITION_OFFSET;
       
     floatToPitchBend(bendSemitones);
   }
 
   if (SerialUSB.availableForWrite() > 32) {
     SerialUSB.print(semitoneOffset);
-    SerialUSB.print(" - ");
-    SerialUSB.println(abs(pulleyLeft.travel - pulleyRight.travel));
+    SerialUSB.print(" | ");
+    SerialUSB.print(nextNote);
+    SerialUSB.print(" | ");
+    SerialUSB.println(bendSemitones);
   }
 }
 
