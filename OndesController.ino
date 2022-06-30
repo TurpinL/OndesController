@@ -45,10 +45,14 @@ void loop() {
   updatePulley(pulleyRight);
 
   float semitoneOffset = pulleyLeft.travel / MM_PER_NOTE; 
+  int roundedSemitoneOffset = round(semitoneOffset);
 
   // Start at middle C 
-  int nextNote = 60 + round(semitoneOffset);
-  float bendSemitones = semitoneOffset - round(semitoneOffset);
+  int nextNote = 60 + roundedSemitoneOffset;
+
+  float sustain = log(
+    1 + constrain(((int)analogRead(A1) - 100) / 800.f, 0, 1)
+  );
 
   if (Serial1.availableForWrite() > 32) {
     if (nextNote != currentNote) {
@@ -58,17 +62,18 @@ void loop() {
       currentNote = nextNote;
     }
 
-    // float bendSemitones = semitoneOffset - trunc(semitoneOffset) - NOTE_TRANSITION_OFFSET;
-      
+    float bendSemitones = semitoneOffset - roundedSemitoneOffset;
+
     floatToPitchBend(bendSemitones);
+    floatToSustain(sustain);
   }
 
   if (SerialUSB.availableForWrite() > 32) {
-    SerialUSB.print(semitoneOffset);
-    SerialUSB.print(" | ");
     SerialUSB.print(nextNote);
     SerialUSB.print(" | ");
-    SerialUSB.println(bendSemitones);
+    SerialUSB.print(analogRead(A1));
+    SerialUSB.print(" | ");
+    SerialUSB.println(sustain);
   }
 }
 
@@ -114,12 +119,18 @@ float differenceBetweenAngles(float angleStart, float angleEnd) {
 // Assumes +/- 2 semitone pitchbend range on the synth. So the semitones param should be within that range
 void floatToPitchBend(float semitones) {
   // Map the +/- 2 semitone range to the 0 - 16,383 (14 bits) of midi's pitchbend message
-  int rawIntBend = (semitones + 2) * 0xFFF/*2^12*/;
+  int rawIntBend = (semitones + 2) * 0xFFF/* 12 bits */;
 
   int leastSignificatByte = rawIntBend & 0x7F;
   int mostSignificatByte = (rawIntBend >> 7) & 0x7F;
 
   midiCommand(0xE0, leastSignificatByte, mostSignificatByte);
+}
+
+void floatToSustain(float fraction) {
+  int rawSustain = constrain(fraction, 0, 1) * 0x7F/* 7 bits */;
+
+  midiCommand(0xB0, 0x12, rawSustain);
 }
 
 // plays a MIDI note. Doesn't check to see that cmd is greater than 127, or that
