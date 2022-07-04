@@ -8,8 +8,13 @@
 
 const float MAX_RAW_VALUE = 4096;
 const float RAW_TO_ANGLE = 360 / (float)MAX_RAW_VALUE;
-const float PULLEY_CIRCUMFERENCE_MM = -52.63;
+const float PULLEY_CIRCUMFERENCE_MM = 52.63;
+const float DISTANCE_BETWEEN_PULLEYS_MM = 395;
 const float MM_PER_NOTE = 10;
+
+const byte SUSTAIN = 0x12;
+const byte CUTOFF = 0x2B;
+const byte VCO1SHAPE = 0x24;
 
 TwoWire Wire2(&sercom2, 4, 3);
 
@@ -17,10 +22,12 @@ struct Pulley {
   TwoWire &wireInterface;
   float angle;
   float travel;
+  int travelDirection;
 };
 
-Pulley pulleyLeft = { Wire, 0, 0 };
-Pulley pulleyRight = { Wire2, 0, 0 };
+// Assumes the player's finger starts in the dead center
+Pulley pulleyLeft = { Wire, 0, DISTANCE_BETWEEN_PULLEYS_MM / 2, -1};
+Pulley pulleyRight = { Wire2, 0, DISTANCE_BETWEEN_PULLEYS_MM / 2, 1};
 int currentNote = 60; // C
 
 void setup() {
@@ -44,14 +51,39 @@ void loop() {
   updatePulley(pulleyLeft);
   updatePulley(pulleyRight);
 
-  float semitoneOffset = pulleyLeft.travel / MM_PER_NOTE; 
+  // TODO: Better name
+  float spoofDistBetweenPulleys = min(
+    DISTANCE_BETWEEN_PULLEYS_MM,
+    pulleyLeft.travel + pulleyRight.travel 
+  );
+
+  // Calculate X and Y offset of the player's finger
+  // DISTANCE_BETWEEN_PULLEYS_MM
+  float s = 0.5 * (
+    pulleyLeft.travel
+    + pulleyRight.travel 
+    + spoofDistBetweenPulleys
+  ); // Semiperimiter
+
+  float y = sqrt(
+    (s - spoofDistBetweenPulleys) 
+    * (s - pulleyLeft.travel)
+    * (s - pulleyRight.travel)
+    * s
+  ) * 2 / spoofDistBetweenPulleys;
+
+  float x = sqrt(
+    (pulleyLeft.travel * pulleyLeft.travel) - (y * y)
+  );
+
+  float semitoneOffset = x / MM_PER_NOTE; 
   int roundedSemitoneOffset = round(semitoneOffset);
 
   // Start at middle C 
   int nextNote = 60 + roundedSemitoneOffset;
 
   float sustain = log(
-    1 + constrain(((int)analogRead(A1) - 100) / 800.f, 0, 1)
+    1 + constrain(((int)analogRead(A1) - 100) / 1000.f, 0, 1)
   );
 
   if (Serial1.availableForWrite() > 32) {
@@ -65,15 +97,18 @@ void loop() {
     float bendSemitones = semitoneOffset - roundedSemitoneOffset;
 
     floatToPitchBend(bendSemitones);
-    floatToSustain(sustain);
+    floatToCC(SUSTAIN, sustain);
+    floatToCC(VCO1SHAPE, y / 45.f);
   }
 
   if (SerialUSB.availableForWrite() > 32) {
-    SerialUSB.print(nextNote);
+    SerialUSB.print(pulleyLeft.travel);
     SerialUSB.print(" | ");
-    SerialUSB.print(analogRead(A1));
+    SerialUSB.print(pulleyRight.travel);
     SerialUSB.print(" | ");
-    SerialUSB.println(sustain);
+    SerialUSB.print(x);
+    SerialUSB.print(" | ");
+    SerialUSB.println(y);
   }
 }
 
@@ -127,10 +162,10 @@ void floatToPitchBend(float semitones) {
   midiCommand(0xE0, leastSignificatByte, mostSignificatByte);
 }
 
-void floatToSustain(float fraction) {
-  int rawSustain = constrain(fraction, 0, 1) * 0x7F/* 7 bits */;
-
-  midiCommand(0xB0, 0x12, rawSustain);
+void floatToCC(byte ccAddress, float fraction) {
+  int cutoff = constrain(fraction, 0, 1) * 0x7F/* 7 bits */;
+  
+  midiCommand(0xB0, ccAddress, cutoff);
 }
 
 // plays a MIDI note. Doesn't check to see that cmd is greater than 127, or that
@@ -150,5 +185,8 @@ void updatePulley(Pulley &pulley) {
   float angleDelta = differenceBetweenAngles(pulley.angle, newAngle);
 
   pulley.angle = newAngle;
-  pulley.travel -= angleDelta / 360.0 * PULLEY_CIRCUMFERENCE_MM;
+  pulley.travel -= angleDelta 
+    / 360.0 
+    * PULLEY_CIRCUMFERENCE_MM 
+    * pulley.travelDirection;
 }
