@@ -12,9 +12,16 @@ const float PULLEY_CIRCUMFERENCE_MM = 52.63;
 const float DISTANCE_BETWEEN_PULLEYS_MM = 395;
 const float MM_PER_NOTE = 10;
 
-const byte SUSTAIN = 0x12;
-const byte CUTOFF = 0x2B;
-const byte VCO1SHAPE = 0x24;
+const byte PORTAMENTO = 5;
+const byte EG_INTENSITY = 22;
+const byte ATTACK = 16;
+const byte DECAY = 17;
+const byte SUSTAIN = 18;
+const byte RELEASE = 19;
+const byte CUTOFF = 43;
+const byte VCO1SHAPE = 36;
+
+const int patchInitPin = 7;
 
 TwoWire Wire2(&sercom2, 4, 3);
 
@@ -28,12 +35,15 @@ struct Pulley {
 // Assumes the player's finger starts in the dead center
 Pulley pulleyLeft = { Wire, 0, DISTANCE_BETWEEN_PULLEYS_MM / 2, -1};
 Pulley pulleyRight = { Wire2, 0, DISTANCE_BETWEEN_PULLEYS_MM / 2, 1};
-int currentNote = 60; // C
+int currentNote = -1;
 
 void setup() {
   SerialUSB.begin(115200);
   // Configure baud for midi
   Serial1.begin(31250);
+
+  pinMode(patchInitPin, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(patchInitPin), initSynthPatch, HIGH);
 
   Wire.begin();
   Wire.setClock(I2C_FAST_MODE);
@@ -52,13 +62,12 @@ void loop() {
   updatePulley(pulleyRight);
 
   // TODO: Better name
+  // Calculate X and Y offset of the player's finger
   float spoofDistBetweenPulleys = min(
     DISTANCE_BETWEEN_PULLEYS_MM,
     pulleyLeft.travel + pulleyRight.travel 
   );
 
-  // Calculate X and Y offset of the player's finger
-  // DISTANCE_BETWEEN_PULLEYS_MM
   float s = 0.5 * (
     pulleyLeft.travel
     + pulleyRight.travel 
@@ -74,12 +83,12 @@ void loop() {
 
   float x = sqrt(
     (pulleyLeft.travel * pulleyLeft.travel) - (y * y)
-  );
+  ) - (DISTANCE_BETWEEN_PULLEYS_MM / 2);
 
   float semitoneOffset = x / MM_PER_NOTE; 
   int roundedSemitoneOffset = round(semitoneOffset);
 
-  // Start at middle C 
+  // Start at C3 (1 octave below middle C) 
   int nextNote = 60 + roundedSemitoneOffset;
 
   float sustain = log(
@@ -102,13 +111,12 @@ void loop() {
   }
 
   if (SerialUSB.availableForWrite() > 32) {
-    SerialUSB.print(pulleyLeft.travel);
-    SerialUSB.print(" | ");
-    SerialUSB.print(pulleyRight.travel);
-    SerialUSB.print(" | ");
+    SerialUSB.print(currentNote);
+    SerialUSB.print(", (");
     SerialUSB.print(x);
-    SerialUSB.print(" | ");
-    SerialUSB.println(y);
+    SerialUSB.print(", ");
+    SerialUSB.print(y);
+    SerialUSB.println(")");
   }
 }
 
@@ -168,12 +176,34 @@ void floatToCC(byte ccAddress, float fraction) {
   midiCommand(0xB0, ccAddress, cutoff);
 }
 
+void intToCC(byte ccAddress, int value) {
+  midiCommand(0xB0, ccAddress, value);
+}
+
 // plays a MIDI note. Doesn't check to see that cmd is greater than 127, or that
 // data values are less than 127:
 void midiCommand(int cmd, int pitch, int velocity) {
   Serial1.write(cmd);
   Serial1.write(pitch);
   Serial1.write(velocity);
+}
+
+void initSynthPatch() {
+  static unsigned long last_interrupt_time = 0;
+  unsigned long interrupt_time = millis();
+
+  if (interrupt_time - last_interrupt_time > 200) 
+  {
+    last_interrupt_time = interrupt_time;
+
+    floatToCC(ATTACK, 0.f);
+    floatToCC(DECAY, 0.f);
+    floatToCC(SUSTAIN, 0.f);
+    floatToCC(RELEASE, 0.f);
+    floatToCC(PORTAMENTO, 0.f);
+    floatToCC(EG_INTENSITY, 0.5f);
+    floatToCC(120, 0.5f);
+  }
 }
 
 void initializePulley(Pulley &pulley) {
