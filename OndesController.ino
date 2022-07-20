@@ -20,6 +20,8 @@ const byte SUSTAIN = 18;
 const byte RELEASE = 19;
 const byte CUTOFF = 43;
 const byte VCO1SHAPE = 36;
+const byte LFORATE = 24;
+const byte LFOINT = 26;
 
 const int patchInitPin = 7;
 
@@ -107,7 +109,8 @@ void loop() {
 
     floatToPitchBend(bendSemitones);
     floatToCC(SUSTAIN, sustain);
-    floatToCC(VCO1SHAPE, y / 45.f);
+    floatToCC(LFORATE, y / 45.f);
+    floatToCC(LFOINT, y / 15.f);
   }
 
   if (SerialUSB.availableForWrite() > 32) {
