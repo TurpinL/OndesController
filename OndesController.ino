@@ -2,9 +2,16 @@
 #include <wiring_private.h>
 
 #define I2C_FAST_MODE 1000000
+
+// Pulley Sensor
 #define AMS5600_ADDRESS 0x36
 #define READ_RAW_ANGLE_LO 0x0d
 #define READ_RAW_ANGLE_HI 0x0c
+
+// Touche Sensor
+#define AS5510_ADDRESS 0x56
+#define READ_DATA_LO 0x00
+#define READ_DATA_HI 0x01
 
 const float MAX_RAW_VALUE = 4096;
 const float RAW_TO_ANGLE = 360 / (float)MAX_RAW_VALUE;
@@ -23,9 +30,14 @@ const byte VCO1SHAPE = 36;
 const byte LFORATE = 24;
 const byte LFOINT = 26;
 
+// Wired up to the button that resets the synth patch
 const int patchInitPin = 7;
 
-TwoWire Wire2(&sercom2, 4, 3);
+TwoWire Wire2(
+  &sercom2, 
+  4, // SDA 
+  3  // SCL
+);
 
 struct Pulley {
   TwoWire &wireInterface;
@@ -33,6 +45,8 @@ struct Pulley {
   float travel;
   int travelDirection;
 };
+
+float touche = 0.f;
 
 // Assumes the player's finger starts in the dead center
 Pulley pulleyLeft = { Wire, 0, DISTANCE_BETWEEN_PULLEYS_MM / 2, -1};
@@ -62,6 +76,7 @@ void setup() {
 void loop() {
   updatePulley(pulleyLeft);
   updatePulley(pulleyRight);
+  touche = readTouche();
 
   // TODO: Better name
   // Calculate X and Y offset of the player's finger
@@ -93,9 +108,8 @@ void loop() {
   // Start at C3 (1 octave below middle C) 
   int nextNote = 60 + roundedSemitoneOffset;
 
-  float sustain = log(
-    1 + constrain(((int)analogRead(A1) - 100) / 1000.f, 0, 1)
-  );
+  float sustain = log10(1 + touche * 9);
+  // float sustain = touche;
 
   if (Serial1.availableForWrite() > 32) {
     if (nextNote != currentNote) {
@@ -119,6 +133,8 @@ void loop() {
     SerialUSB.print(x);
     SerialUSB.print(", ");
     SerialUSB.print(y);
+    SerialUSB.print(", ");
+    SerialUSB.print(sustain);
     SerialUSB.println(")");
   }
 }
@@ -148,6 +164,25 @@ int readRawAngle(TwoWire &wire) {
   high = high << 8;
 
   return high | low;
+}
+
+float readTouche() {
+  int reading = 0;
+
+  Wire.beginTransmission(AS5510_ADDRESS);
+  Wire.write(READ_DATA_LO);
+  Wire.endTransmission(); 
+  Wire.requestFrom(AS5510_ADDRESS, 2);
+
+  if (Wire.available() >= 2) {
+    reading = Wire.read();
+    // The chip has 10-bit resolution, so we only need 2 bits from the high byte
+    int high = Wire.read() & 0b11;
+
+    reading |= (high << 8);
+  }
+
+  return reading / 1023.f;
 }
 
 float differenceBetweenAngles(float angleStart, float angleEnd) {
