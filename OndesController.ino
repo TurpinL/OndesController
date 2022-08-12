@@ -30,6 +30,7 @@ const byte CUTOFF = 43;
 const byte VCO1SHAPE = 36;
 const byte LFORATE = 24;
 const byte LFOINT = 26;
+const byte CROSS_MOD = 41;
 
 // Wired up to the button that resets the synth patch
 const int patchInitPin = 7;
@@ -120,7 +121,7 @@ void loop() {
               * (s - pulleyLeft.travel)
               * (s - pulleyRight.travel)
               * s)
-            * 2 / spoofDistBetweenPulleys;
+            * 2 / spoofDistBetweenPulleys;            
 
   float x = sqrt((pulleyLeft.travel * pulleyLeft.travel) - (y * y))
             - (DISTANCE_BETWEEN_PULLEYS_MM / 2);
@@ -133,6 +134,7 @@ void loop() {
 
   // float sustain = log10(1 + touche * 9);
   float sustain = touche;
+  float expression = min(max(y - 10, 0), 30) / 30.f;
 
   if (Serial1.availableForWrite() > 32) {
     if (nextNote != currentNote) {
@@ -146,8 +148,9 @@ void loop() {
 
     floatToPitchBend(bendSemitones);
     floatToCC(SUSTAIN, sustain);
-    // floatToCC(LFORATE, y / 45.f);
-    // floatToCC(LFOINT, y / 15.f);
+    floatToCC(CUTOFF, sustain);
+
+    floatToCC(CROSS_MOD, expression);
   }
 
   if (SerialUSB.availableForWrite() > 32) {
@@ -155,9 +158,9 @@ void loop() {
     SerialUSB.print(currentNote);
     SerialUSB.print(", x:");
     SerialUSB.print(x);
-    SerialUSB.print(", y:");
-    SerialUSB.print(y);
-    SerialUSB.print(", z:");
+    SerialUSB.print(", exp:");
+    SerialUSB.print(expression);
+    SerialUSB.print(", sus:");
     SerialUSB.print(sustain);
     SerialUSB.println(")");
   }
