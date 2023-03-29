@@ -1,5 +1,6 @@
 #include <Wire.h>
 #include <wiring_private.h>
+#include "MIDIUSB.h"
 
 #define I2C_FAST_MODE 1000000
 
@@ -32,8 +33,7 @@ const byte LFORATE = 24;
 const byte LFOINT = 26;
 const byte CROSS_MOD = 41;
 
-// Wired up to the button that resets the synth patch
-const int patchInitPin = 7;
+const int patchInitPin = 7; // Button to resets the synth patch
 
 TwoWire Wire2(
   &sercom2,
@@ -101,6 +101,7 @@ void setup() {
 void loop() {
   updatePulley(pulleyLeft);
   updatePulley(pulleyRight);
+  // touche = touche * 0.9995 + readTouche() * 0.0005;
   touche = readTouche();
 
   // TODO: Better name
@@ -138,8 +139,8 @@ void loop() {
 
   if (Serial1.availableForWrite() > 32) {
     if (nextNote != currentNote) {
-      midiCommand(0x90, nextNote, 0x64);     // Start new note
-      midiCommand(0x80, currentNote, 0x64);  // Stop current note
+      midiCommand(0x09, 0, nextNote, 0x64);     // Start new note
+      midiCommand(0x08, 0, currentNote, 0x64);  // Stop current note
 
       currentNote = nextNote;
     }
@@ -232,25 +233,29 @@ void floatToPitchBend(float semitones) {
   int leastSignificatByte = rawIntBend & 0x7F;
   int mostSignificatByte = (rawIntBend >> 7) & 0x7F;
 
-  midiCommand(0xE0, leastSignificatByte, mostSignificatByte);
+  midiCommand(0x0E, 0, leastSignificatByte, mostSignificatByte);
 }
 
 void floatToCC(byte ccAddress, float fraction) {
   int cutoff = constrain(fraction, 0, 1) * 0x7F /* 7 bits */;
 
-  midiCommand(0xB0, ccAddress, cutoff);
+  midiCommand(0x0B, 0, ccAddress, cutoff);
 }
 
 void intToCC(byte ccAddress, int value) {
-  midiCommand(0xB0, ccAddress, value);
+  midiCommand(0x0B, 0, ccAddress, value);
 }
 
-// plays a MIDI note. Doesn't check to see that cmd is greater than 127, or that
-// data values are less than 127:
-void midiCommand(int cmd, int pitch, int velocity) {
-  Serial1.write(cmd);
-  Serial1.write(pitch);
-  Serial1.write(velocity);
+void midiCommand(int cmd, int channel, int control, int value) {
+  int commandPlusChannel = (cmd << 4) | channel;
+
+  midiEventPacket_t event = {cmd, commandPlusChannel, control, value};
+
+  MidiUSB.sendMIDI(event);
+
+  Serial1.write(commandPlusChannel);
+  Serial1.write(control);
+  Serial1.write(value);
 }
 
 void initSynthPatch() {
