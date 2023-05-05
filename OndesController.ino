@@ -32,8 +32,12 @@ const byte VCO1SHAPE = 36;
 const byte LFORATE = 24;
 const byte LFOINT = 26;
 const byte CROSS_MOD = 41;
+const byte MPE_Y_AXIS = 74;
 
 const int patchInitPin = 7; // Button to resets the synth patch
+
+const bool isMpeMode = true;
+const int midiChannel = isMpeMode ? 1 : 0;
 
 TwoWire Wire2(
   &sercom2,
@@ -72,12 +76,9 @@ int currentNote = -1;
 
 void setup() {
   SerialUSB.begin(115200);
+  // while (!SerialUSB) {}
 
-  while (!SerialUSB) {}
-  SerialUSB.println("Serial Ready");
-
-  // Configure baud for midi
-  Serial1.begin(31250);
+  Serial1.begin(31250); // Midi Baud
 
   pinMode(patchInitPin, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(patchInitPin), initSynthPatch, HIGH);
@@ -138,31 +139,44 @@ void loop() {
   float expression = min(max(y - 10, 0), 30) / 30.f;
 
   if (Serial1.availableForWrite() > 32) {
-    if (nextNote != currentNote) {
-      midiCommand(0x09, 0, nextNote, 0x64);     // Start new note
-      midiCommand(0x08, 0, currentNote, 0x64);  // Stop current note
 
-      currentNote = nextNote;
+    if ((int)(127 * sustain) > 0) {
+        if (currentNote == -1) {
+          // Start new note
+          midiCommand(0x09, 1, 60, 127 * sustain);
+        }
+
+        currentNote = nextNote;
+    } else {
+      if (currentNote != -1) {
+        midiCommand(0x08, 1, 60, 0);  // Stop current note
+        currentNote = -1;
+      }
     }
 
-    float bendSemitones = semitoneOffset - roundedSemitoneOffset;
+    if (isMpeMode) {
+      midiCommand(0x0D, 1, 127 * sustain, 0); // Pressure
+      floatToCC(MPE_Y_AXIS, expression); // Expression
+      floatToPitchBend(semitoneOffset / 48 * 2); // Pitch
+    } else {
+      float bendSemitones = semitoneOffset - roundedSemitoneOffset;
+      floatToPitchBend(bendSemitones);
+      floatToCC(SUSTAIN, sustain);
+      floatToCC(CUTOFF, sustain);
 
-    floatToPitchBend(bendSemitones);
-    floatToCC(SUSTAIN, sustain);
-    floatToCC(CUTOFF, sustain);
-
-    floatToCC(CROSS_MOD, expression);
+      floatToCC(CROSS_MOD, expression); 
+    }
   }
 
   if (SerialUSB.availableForWrite() > 32) {
     SerialUSB.print("(");
     SerialUSB.print(currentNote);
-    SerialUSB.print(", x:");
-    SerialUSB.print(x);
+    SerialUSB.print(", bend:");
+    SerialUSB.print(semitoneOffset / 48 * 2);
     SerialUSB.print(", exp:");
     SerialUSB.print(expression);
     SerialUSB.print(", sus:");
-    SerialUSB.print(sustain);
+    SerialUSB.print((int)(127 * sustain));
     SerialUSB.println(")");
   }
 }
@@ -233,17 +247,17 @@ void floatToPitchBend(float semitones) {
   int leastSignificatByte = rawIntBend & 0x7F;
   int mostSignificatByte = (rawIntBend >> 7) & 0x7F;
 
-  midiCommand(0x0E, 0, leastSignificatByte, mostSignificatByte);
+  midiCommand(0x0E, midiChannel, leastSignificatByte, mostSignificatByte);
 }
 
 void floatToCC(byte ccAddress, float fraction) {
   int cutoff = constrain(fraction, 0, 1) * 0x7F /* 7 bits */;
 
-  midiCommand(0x0B, 0, ccAddress, cutoff);
+  midiCommand(0x0B, midiChannel, ccAddress, cutoff);
 }
 
 void intToCC(byte ccAddress, int value) {
-  midiCommand(0x0B, 0, ccAddress, value);
+  midiCommand(0x0B, midiChannel, ccAddress, value);
 }
 
 void midiCommand(int cmd, int channel, int control, int value) {
