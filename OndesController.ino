@@ -14,6 +14,8 @@
 #define READ_DATA_LO 0x00
 #define READ_DATA_HI 0x01
 
+#define sgn(x) ((x) < 0 ? -1 : ((x) > 0 ? 1 : 0))
+
 const int MAX_RAW_VALUE = 4096;
 const float RAW_TO_ANGLE = 360 / (float)MAX_RAW_VALUE;
 const float LEFT_PULLEY_CIRCUMFERENCE_MM = 52.65; 
@@ -49,11 +51,12 @@ struct Pulley {
   TwoWire &wireInterface;
   float angle;
   float travel;
-  int travelDirection;
+  int travelDirection; // 1 or -1
   float circumference;
 };
 
 float touche = 0.f;
+float slipCorrection = 0.f;
 
 // Assumes the player's finger starts in the dead center
 Pulley pulleyLeft = { 
@@ -61,7 +64,7 @@ Pulley pulleyLeft = {
   0, 
   DISTANCE_BETWEEN_PULLEYS_MM / 2, 
   1, 
-  LEFT_PULLEY_CIRCUMFERENCE_MM 
+  LEFT_PULLEY_CIRCUMFERENCE_MM,
 };
 
 Pulley pulleyRight = { 
@@ -69,7 +72,7 @@ Pulley pulleyRight = {
   0, 
   DISTANCE_BETWEEN_PULLEYS_MM / 2, 
   -1, 
-  RIGHT_PULLEY_CIRCUMFERENCE_MM 
+  RIGHT_PULLEY_CIRCUMFERENCE_MM,
 };
 
 int currentNote = -1;
@@ -99,13 +102,35 @@ void setup() {
   SerialUSB.println("Ready!");
 }
 
+unsigned long lastMicros = 0;
+
 void loop() {
+  unsigned long thisMicros = micros();
+  unsigned long deltaMicros = thisMicros - lastMicros;
+  float deltaSeconds = deltaMicros / 1000000.f;
+
   updatePulley(pulleyLeft);
   updatePulley(pulleyRight);
-  // touche = touche * 0.9995 + readTouche() * 0.0005;
   touche = readTouche();
 
-  // TODO: Better name
+  // Slip correction
+  float overTravel = pulleyLeft.travel 
+      + pulleyRight.travel
+      + slipCorrection
+      - DISTANCE_BETWEEN_PULLEYS_MM;
+  
+  if (overTravel > 0.f) {
+    // If overtravel is positive, then slowly, evenly, increase both pulley's slipCorrection to reduce overtravel to zero
+    float target = slipCorrection - overTravel / 2;
+    float delta = target - slipCorrection;
+
+    slipCorrection += min(abs(delta), 0.1f * deltaSeconds) * sgn(delta);
+  } else {
+    // If overtravel is negative immediately reduce both slipCorrections so that overtravel is 0
+    slipCorrection -= overTravel / 2.f;
+  }
+
+  // TODO: Apply slip correction
   // Calculate X and Y offset of the player's finger
   float spoofDistBetweenPulleys = min(
     DISTANCE_BETWEEN_PULLEYS_MM,
@@ -116,7 +141,7 @@ void loop() {
     pulleyLeft.travel 
     + pulleyRight.travel 
     + spoofDistBetweenPulleys
-  );  // Semiperimiter
+  );  // Semiperimeter
 
   float y = sqrt(
               (s - spoofDistBetweenPulleys)
@@ -179,6 +204,8 @@ void loop() {
     SerialUSB.print((int)(127 * sustain));
     SerialUSB.println(")");
   }
+
+  lastMicros = thisMicros;
 }
 
 float readAngle(TwoWire &wire) {
